@@ -27,44 +27,60 @@ read, do not apply it unless there is a measured, documented need. Prefer the ob
 
 ```
 event-source-todo-app/
-├── domain/               # Core business logic. No imports from any other layer.
-│   ├── todo.go           # Aggregate root (Todo struct + methods)
-│   ├── events.go         # Domain event types and factory functions
-│   └── errors.go         # Sentinel errors (ErrTodoNotFound, etc.)
+├── cmd/
+│   └── todo-api/
+│       └── main.go       # Composition root. Wires everything together. No logic here.
 │
-├── application/          # Use cases, interfaces, DTOs. Imports domain only.
-│   ├── ports/            # Interfaces: TodoRepository, EventPublisher, EventSubscriber
-│   ├── usecases/         # One file per use case: create_todo.go, complete_todo.go, etc.
-│   └── dto/              # Request/response structs for the API boundary
-│
-├── infrastructure/       # Concrete adapters. Imports application/ports only.
-│   ├── nats/             # NATS publisher and subscriber implementations
-│   └── gorm/             # GORM repository implementation and DB models
-│
-├── api/                  # HTTP handlers and NATS message routing. Thin layer only.
-│   ├── http/             # net/http or chi handlers, middleware chain
-│   └── messaging/        # NATS subscription handlers that invoke use cases
-│
-└── main.go               # Composition root. Wires everything together. No logic here.
+└── internal/             # Not importable by external modules (Go compiler enforced).
+    ├── domain/           # Core business logic. No imports from any other layer.
+    │   ├── todo.go       # Aggregate root (Todo struct + methods)
+    │   ├── events.go     # Domain event types and factory functions
+    │   └── errors.go     # Sentinel errors (ErrTodoNotFound, etc.)
+    │
+    ├── application/      # Use cases, interfaces, DTOs. Imports internal/domain only.
+    │   ├── ports/        # Interfaces: TodoRepository, EventPublisher, EventSubscriber
+    │   ├── usecases/     # One file per use case: create_todo.go, complete_todo.go, etc.
+    │   └── dto/          # Request/response structs for the API boundary
+    │
+    ├── infrastructure/   # Concrete adapters. Imports internal/application/ports and internal/domain.
+    │   ├── nats/         # NATS publisher and subscriber implementations
+    │   └── gorm/         # GORM repository implementation and DB models
+    │
+    └── api/              # HTTP handlers and NATS message routing. Thin layer only.
+        ├── http/         # net/http or chi handlers, middleware chain
+        └── messaging/    # NATS subscription handlers that invoke use cases
 ```
+
+**`cmd/todo-api/`** holds the main package for the HTTP API binary. Add another subdirectory under
+`cmd/` (e.g. `cmd/migrator/`) for each additional binary.
+
+**`internal/`** enforces Go's `internal` rule: code in **other modules** cannot import these
+packages. Any package **inside this repository** may import `internal/...` as long as it follows
+the dependency rules below.
 
 ### Dependency Rule (strict — violations block merging)
 
 ```
 domain  <--  application  <--  infrastructure
-                  ^                   ^
-                 api              main.go
+  ^               ^                   ^
+  └───────────── api                  │
+                  ^                   │
+                  └────── cmd/todo-api/main.go ────┘
+                  (main imports all internal layers to wire them together)
 ```
 
-- `domain` imports nothing from this project.
-- `application` imports `domain` only.
-- `infrastructure` imports `application/ports` only. Never imports `domain` directly for persistence.
-- `api` imports `application/ports` and `application/dto` only.
-- `main.go` is the **only** place that instantiates infrastructure structs and wires them into interfaces.
+- `internal/domain` imports nothing from this project.
+- `internal/application` imports `internal/domain` only.
+- `internal/infrastructure` imports `internal/application/ports` and `internal/domain` (needed to
+  implement port interfaces that use domain types). It must not contain any business logic — that
+  belongs in `internal/domain`.
+- `internal/api` imports `internal/application/ports` and `internal/application/dto` only.
+- `cmd/todo-api/main.go` is the **only** place that instantiates infrastructure structs and wires
+  them into interfaces.
 
 The PR template layer `repository` is **not** a top-level directory. It maps to:
-- the interfaces in `application/ports/` (the abstraction)
-- the GORM structs in `infrastructure/gorm/` (the implementation)
+- the interfaces in `internal/application/ports/` (the abstraction)
+- the GORM structs in `internal/infrastructure/gorm/` (the implementation)
 
 ---
 
@@ -79,7 +95,7 @@ HTTP / NATS Request
   Use Case (Command Handler)          <- validates input, builds command
         |
         v
-  Domain Aggregate (Todo)             <- applies business rules, emits []DomainEvent
+  Domain Aggregate (Todo)             <- applies business rules, emits []domain.Event
         |
         v
   Event Store (Repository)            <- appends events (never updates/deletes)
@@ -114,10 +130,10 @@ searchable in the codebase.
 Use for: NATS subscribers that react to domain events. Each subscriber has one responsibility.
 
 ```go
-// application/ports/event_subscriber.go
+// internal/application/ports/event_subscriber.go
 
 // Pattern: Observer
-type EventHandler func(event domain.DomainEvent) error
+type EventHandler func(event domain.Event) error
 
 type EventSubscriber interface {
     Subscribe(subject string, handler EventHandler) error
@@ -125,7 +141,7 @@ type EventSubscriber interface {
 ```
 
 Each concrete subscriber (`TodoProjector`, `AuditLogSubscriber`) is a separate struct registered
-at startup in `main.go`. They do not know about each other.
+at startup in `cmd/todo-api/main.go`. They do not know about each other.
 
 ### Decorator — Cross-Cutting Concerns
 
@@ -133,7 +149,7 @@ Use for: wrapping use cases or repositories with logging, validation, or metrics
 modifying the core implementation.
 
 ```go
-// infrastructure/gorm/logging_repository.go
+// internal/infrastructure/gorm/logging_repository.go
 
 // Pattern: Decorator
 type LoggingRepository struct {
@@ -147,7 +163,7 @@ func (r LoggingRepository) Save(ctx context.Context, todo domain.Todo) error {
 }
 ```
 
-Stack decorators in `main.go` only:
+Stack decorators in `cmd/todo-api/main.go` only:
 
 ```go
 var repo ports.TodoRepository
@@ -157,11 +173,12 @@ repo = gorm.NewLoggingRepository(logger, repo)   // Pattern: Decorator
 
 ### Repository — Persistence Abstraction
 
-Interface lives in `application/ports`. It uses domain types, never GORM models. The GORM model
-is an internal detail of `infrastructure/gorm` and is never exported outside that package.
+Interface lives in `internal/application/ports`. It uses domain types, never GORM models. The GORM
+model is an internal detail of `internal/infrastructure/gorm` and is never exported outside that
+package.
 
 ```go
-// application/ports/todo_repository.go
+// internal/application/ports/todo_repository.go
 type TodoRepository interface {
     Save(ctx context.Context, todo domain.Todo) error
     FindByID(ctx context.Context, id uuid.UUID) (domain.Todo, error)
@@ -174,27 +191,30 @@ type TodoRepository interface {
 Use for: constructing domain events with all required fields in one place.
 
 ```go
-// domain/events.go
+// internal/domain/events.go
 
 // Pattern: Factory
-func NewTodoCreated(todoID uuid.UUID, title string) TodoCreated {
+func NewTodoCreated(todoID uuid.UUID, title string, occurredAt time.Time) TodoCreated {
     return TodoCreated{
         EventID:     uuid.New(),
-        OccurredAt:  time.Now().UTC(),
+        OccurredAt:  occurredAt,
         AggregateID: todoID,
         Title:       title,
     }
 }
 ```
 
-Never construct event structs with inline literals outside the `domain` package.
+Never construct event structs with inline literals outside the `internal/domain` package.
+
+Always pass `occurredAt` in from the caller (typically the use case, which receives it from an
+injected clock). This keeps domain logic deterministic and easy to test.
 
 ### Command — Use Cases as Command Handlers
 
 One use case file = one command struct + one handler struct + one `Execute` method.
 
 ```go
-// application/usecases/create_todo.go
+// internal/application/usecases/create_todo.go
 
 // Pattern: Command
 type CreateTodoCommand struct {
@@ -224,12 +244,12 @@ func (h CreateTodoHandler) Execute(ctx context.Context, cmd CreateTodoCommand) (
 Use for: pluggable behaviors like event serialization (JSON today, Protobuf later).
 
 ```go
-// application/ports/event_serializer.go
+// internal/application/ports/event_serializer.go
 
 // Pattern: Strategy
 type EventSerializer interface {
-    Marshal(event domain.DomainEvent) ([]byte, error)
-    Unmarshal(data []byte, eventType string) (domain.DomainEvent, error)
+    Marshal(event domain.Event) ([]byte, error)
+    Unmarshal(data []byte, eventType string) (domain.Event, error)
 }
 ```
 
@@ -241,7 +261,7 @@ The NATS publisher accepts `EventSerializer` as a constructor parameter. Never h
 
 ### Interfaces
 
-- Define interfaces in the **consumer's** package (`application/ports`), not the implementor's.
+- Define interfaces in the **consumer's** package (`internal/application/ports`), not the implementor's.
 - Keep interfaces small. Prefer one-method interfaces where possible.
 - Name single-method interfaces after the method: `Publisher`, `Subscriber`, `Finder`.
 - Do not embed interfaces in structs to partially satisfy them. Implement fully.
@@ -253,13 +273,13 @@ The NATS publisher accepts `EventSerializer` as a constructor parameter. Never h
 - Acronyms in exported names: `ID` not `Id`, `HTTP` not `Http`, `NATS` not `Nats`.
 - Constructors: `NewXxx(deps...) Xxx` — return the concrete type, not the interface.
 - Test files: `xxx_test.go`. Use `package xxx_test` for black-box tests.
-- Avoid stuttering: `domain.TodoAggregate` not `domain.Todo` inside package `todo`.
+- Avoid stuttering: `domain.Event` not `domain.DomainEvent`; `ports.Publisher` not `ports.PublisherInterface`.
 
 ### Error Handling
 
 - Never discard errors. `_ = f()` is forbidden unless the function is documented as always-nil.
 - Wrap errors with context: `fmt.Errorf("create todo: %w", err)`.
-- Sentinel errors in `domain/errors.go`: `var ErrTodoNotFound = errors.New("todo not found")`.
+- Sentinel errors in `internal/domain/errors.go`: `var ErrTodoNotFound = errors.New("todo not found")`.
 - Check errors with `errors.Is` / `errors.As`, never by string comparison.
 - Return `(T, error)`. Never return a zero-value `T` as a success sentinel.
 
@@ -271,7 +291,7 @@ The NATS publisher accepts `EventSerializer` as a constructor parameter. Never h
   func WithTimeout(d time.Duration) ServerOption { ... }
   ```
 - No naked returns. Always name what you are returning in the `return` statement.
-- No `init()` functions. Initialize explicitly in `main.go`.
+- No `init()` functions. Initialize explicitly in `cmd/todo-api/main.go`.
 - Embed only for true "is-a" relationships. Prefer composition with named fields.
 
 ### Contexts
@@ -315,17 +335,17 @@ gotestsum --format standard-verbose -- -count=1 ./...
 gotestsum --format short -- -count=1 -tags=integration ./...
 
 # Single package
-gotestsum --format short -- -count=1 ./domain/...
+gotestsum --format short -- -count=1 ./internal/domain/...
 ```
 
 ### Strategy Per Layer
 
 | Layer | Type | Notes |
 |---|---|---|
-| `domain` | Pure unit tests | No mocks, no I/O. Test aggregate behavior by applying events. |
-| `application` | Unit tests with fakes | Write simple hand-rolled fakes, not generated mocks. |
-| `infrastructure` | Integration tests | Tag with `//go:build integration`. Require real DB/NATS. |
-| `api` | Handler tests | Use `net/http/httptest`. Test routing and JSON shape only. |
+| `internal/domain` | Pure unit tests | No mocks, no I/O. Test aggregate behavior by applying events. |
+| `internal/application` | Unit tests with fakes | Write simple hand-rolled fakes, not generated mocks. |
+| `internal/infrastructure` | Integration tests | Tag with `//go:build integration`. Require real DB/NATS. |
+| `internal/api` | Handler tests | Use `net/http/httptest`. Test routing and JSON shape only. |
 
 ### Test Naming
 
@@ -358,7 +378,7 @@ for _, tc := range tests {
 
 ### What to Mock
 
-Mock at the `application/ports` interface boundary only. Do not mock domain types.
+Mock at the `internal/application/ports` interface boundary only. Do not mock domain types.
 Write hand-rolled fakes for small interfaces (under 5 methods). They are easier to read
 and maintain than generated mocks.
 
@@ -370,13 +390,13 @@ and maintain than generated mocks.
 |---|---|---|
 | Anemic domain model | Business logic ends up in use cases; domain is just data bags | Move validation and state transitions into aggregate methods |
 | God use case | One handler does create, update, delete, and list | One file, one command handler per operation |
-| Wrong layer imports | `application` importing `infrastructure` breaks dependency inversion | Define an interface in `application/ports`; inject the concrete in `main.go` |
-| `interface{}` / `any` for events | Loses type safety at the core of the system | Use a `DomainEvent` interface with `EventType() string` and `AggregateID() uuid.UUID` |
+| Wrong layer imports | `internal/application` importing `internal/infrastructure` breaks dependency inversion | Define an interface in `internal/application/ports`; inject the concrete in `cmd/todo-api/main.go` |
+| `interface{}` / `any` for events | Loses type safety at the core of the system | Use a `domain.Event` interface with `EventType() string` and `AggregateID() uuid.UUID` |
 | Mutating events after creation | Events are immutable facts | Make event fields unexported or document the struct as read-only |
 | `time.Now()` inside domain logic | Makes tests time-dependent and non-deterministic | Pass `occurredAt time.Time` into factory functions; inject a clock |
 | Skipping context propagation | Breaks cancellation and tracing | Always accept and pass `ctx context.Context` as the first argument in I/O functions |
 | Large interfaces in ports | Hard to fake in tests; violates interface segregation | Split into focused interfaces; compose them only when needed |
-| `init()` functions | Hidden initialization order; hard to test | Explicit wiring in `main.go` only |
+| `init()` functions | Hidden initialization order; hard to test | Explicit wiring in `cmd/todo-api/main.go` only |
 | Panic in library code | Callers cannot recover gracefully | Return errors. Reserve `panic` for nil required dependencies caught at startup. |
 
 ---
@@ -385,7 +405,7 @@ and maintain than generated mocks.
 
 ```bash
 # Build the binary
-go build -o bin/todo-api ./main.go
+go build -o bin/todo-api ./cmd/todo-api/
 
 # Run static analysis
 go vet ./...
@@ -408,10 +428,10 @@ All pull requests use `.github/pull_request_template.md`. Check all that apply i
 - [ ] `go vet ./...` produces no output
 - [ ] No layer imports a layer it should not (review Section 2 dependency rules)
 - [ ] New use cases have a matching `Command` struct and `Handler` struct
-- [ ] New domain events have a factory function in `domain/events.go`
-- [ ] New interfaces are defined in `application/ports`, not in `infrastructure` or `api`
+- [ ] New domain events have a factory function in `internal/domain/events.go`
+- [ ] New interfaces are defined in `internal/application/ports`, not in `internal/infrastructure` or `internal/api`
 - [ ] Design patterns used are marked with a `// Pattern: Xxx` comment
 - [ ] No global variables were added (other than sentinel errors)
 
 **PR size:** Prefer small, vertical slices. A PR that adds one use case end-to-end
-(domain event → use case → repository method → HTTP handler) is the right size.
+(`internal/domain` event → use case → repository method → `internal/api` HTTP handler) is the right size.
