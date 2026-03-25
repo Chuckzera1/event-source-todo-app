@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: todo_test
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d todo_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  todo-api:
+    build:
+      context: .
+      dockerfile: cmd/todo-api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_DSN: postgres://user:pass@postgres:5432/todo_test?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
