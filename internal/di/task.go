@@ -6,13 +6,12 @@ import (
 	"gorm.io/gorm"
 )
 
-type TaskRepositoryDI struct {
-	irepositories.ITaskRepository
+type taskRepositoryDI struct {
+	irepositories.ICreateTaskRepository
 }
 
-func NewTaskRepositoryDI(db *gorm.DB) TaskRepositoryDI {
-	createTaskRepository := rtask.CreateTaskRepositoryImpl{DB: db}
-	return TaskRepositoryDI{
-		&createTaskRepository,
+func NewTaskRepositoryDI(db *gorm.DB) irepositories.ITaskRepository {
+	return &taskRepositoryDI{
+		rtask.NewCreateTaskRepositoryImpl(db),
 	}
 }

@@ -8,16 +8,20 @@ import (
 	"gorm.io/gorm"
 )
 
-type CreateTaskRepositoryImpl struct {
-	DB *gorm.DB
+type createTaskRepositoryImpl struct {
+	db *gorm.DB
 }
 
-func (c *CreateTaskRepositoryImpl) CreateTask(ctx context.Context, task domain.Task) error {
-	return c.DB.WithContext(ctx).Create(&TaskModel{
+func (c *createTaskRepositoryImpl) CreateTask(ctx context.Context, task domain.Task) error {
+	return c.db.WithContext(ctx).Create(&TaskModel{
 		ID:          uuid.New(),
 		Title:       task.Title,
 		Description: task.Description,
 		Completed:   task.Completed,
 		Type:        string(task.Type),
 	}).Error
+}
+
+func NewCreateTaskRepositoryImpl(db *gorm.DB) *createTaskRepositoryImpl {
+	return &createTaskRepositoryImpl{db: db}
 }
