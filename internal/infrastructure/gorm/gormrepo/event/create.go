@@ -1,4 +1,4 @@
-package revent
+package event
 
 import (
 	"context"

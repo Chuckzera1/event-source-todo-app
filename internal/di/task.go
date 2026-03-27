@@ -1,17 +1,17 @@
 package di
 
 import (
-	irepositories "github.com/Chuckzera1/event-source-todo-app/internal/application/repositories"
-	rtask "github.com/Chuckzera1/event-source-todo-app/internal/infrastructure/gorm/gormrepo/task"
+	"github.com/Chuckzera1/event-source-todo-app/internal/application/repositories"
+	taskrepo "github.com/Chuckzera1/event-source-todo-app/internal/infrastructure/gorm/gormrepo/task"
 	"gorm.io/gorm"
 )
 
 type taskRepositoryDI struct {
-	irepositories.ICreateTaskRepository
+	repositories.CreateTaskRepository
 }
 
-func NewTaskRepositoryDI(db *gorm.DB) irepositories.ITaskRepository {
+func NewTaskRepositoryDI(db *gorm.DB) repositories.TaskRepository {
 	return &taskRepositoryDI{
-		rtask.NewCreateTaskRepositoryImpl(db),
+		taskrepo.NewCreateTaskRepositoryImpl(db),
 	}
 }

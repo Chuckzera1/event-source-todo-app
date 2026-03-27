@@ -1,6 +1,4 @@
-//go:build integration
-
-package rtask
+package task_test
 
 import (
 	"context"
@@ -9,7 +7,8 @@ import (
 
 	"github.com/Chuckzera1/event-source-todo-app/internal/domain"
 	"github.com/Chuckzera1/event-source-todo-app/internal/infrastructure"
-	"github.com/Chuckzera1/event-source-todo-app/internal/test/integration"
+	taskrepo "github.com/Chuckzera1/event-source-todo-app/internal/infrastructure/gorm/gormrepo/task"
+	"github.com/Chuckzera1/event-source-todo-app/internal/testutils"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -17,15 +16,15 @@ import (
 func TestCreateTaskRepositoryImpl_CreateTask_ShouldPersistRow_WhenTaskIsValid(t *testing.T) {
 	ctx := context.Background()
 
-	connStr := integration.PostgresDSN(t, ctx)
+	connStr := testutils.PostgresDSN(t, ctx)
 
 	db, err := infrastructure.NewGorm(connStr)
 	require.NoError(t, err)
 
-	err = db.WithContext(ctx).AutoMigrate(&TaskModel{})
+	err = db.WithContext(ctx).AutoMigrate(&taskrepo.TaskModel{})
 	require.NoError(t, err)
 
-	repo := &CreateTaskRepositoryImpl{DB: db}
+	repo := taskrepo.NewCreateTaskRepositoryImpl(db)
 	title := "integration-" + uuid.New().String()
 	task := domain.Task{
 		Title:       title,
@@ -39,7 +38,7 @@ func TestCreateTaskRepositoryImpl_CreateTask_ShouldPersistRow_WhenTaskIsValid(t 
 	err = repo.CreateTask(ctx, task)
 	require.NoError(t, err)
 
-	var got TaskModel
+	var got taskrepo.TaskModel
 	err = db.WithContext(ctx).Where("title = ?", title).First(&got).Error
 	require.NoError(t, err)
 	require.Equal(t, task.Description, got.Description)
