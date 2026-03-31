@@ -1,4 +1,4 @@
-package irepositories
+package repositories
 
 import (
 	"context"
@@ -6,6 +6,10 @@ import (
 	"github.com/Chuckzera1/event-source-todo-app/internal/domain"
 )
 
-type ITaskRepository interface {
+type CreateTaskRepository interface {
 	CreateTask(ctx context.Context, task domain.Task) error
+}
+
+type TaskRepository interface {
+	CreateTaskRepository
 }

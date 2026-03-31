@@ -1,31 +1,36 @@
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: todo-postgres
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: todo_test
+      POSTGRES_DB: todo
+      POSTGRES_USER: todo
+      POSTGRES_PASSWORD: todo
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d todo_test"]
+      test: ["CMD-SHELL", "pg_isready -U todo -d todo"]
       interval: 5s
-      timeout: 5s
-      retries: 5
+      timeout: 3s
+      retries: 10
 
-  todo-api:
+  api:
     build:
       context: .
-      dockerfile: cmd/todo-api/Dockerfile
-    ports:
-      - "8080:8080"
-    environment:
-      DATABASE_DSN: postgres://user:pass@postgres:5432/todo_test?sslmode=disable
+      dockerfile: Dockerfile
+      target: final
+    container_name: todo-api
     depends_on:
       postgres:
         condition: service_healthy
+    environment:
+      DATABASE_URL: host=postgres user=todo password=todo dbname=todo port=5432 sslmode=disable TimeZone=UTC
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
