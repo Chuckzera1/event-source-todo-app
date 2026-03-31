@@ -7,5 +7,5 @@ type Event struct {
 	Aggregate string
 	Version   int
 	Data      any
-	Timestamp time.Time
+	Timestamp *time.Time
 }
