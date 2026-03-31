@@ -20,6 +20,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: final
     container_name: todo-api
     depends_on:
       postgres:

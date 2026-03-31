@@ -8,7 +8,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /bin/todo-api ./cmd/todo-api
 
-FROM alpine:3.22
+FROM alpine:3.22 AS final
 
 RUN addgroup -S app && adduser -S app -G app
 USER app
