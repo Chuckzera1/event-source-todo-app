@@ -1,4 +1,4 @@
-package irepositories
+package repositories
 
 import (
 	"context"
@@ -6,10 +6,10 @@ import (
 	"github.com/Chuckzera1/event-source-todo-app/internal/domain"
 )
 
-type ICreateEventRepository interface {
+type CreateEventRepository interface {
 	CreateEvent(ctx context.Context, event domain.Event) error
 }
 
-type IEventRepository interface {
-	ICreateEventRepository
+type EventRepository interface {
+	CreateEventRepository
 }

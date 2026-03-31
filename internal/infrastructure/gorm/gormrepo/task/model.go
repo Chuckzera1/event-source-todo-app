@@ -1,4 +1,4 @@
-package rtask
+package task
 
 import (
 	"github.com/google/uuid"

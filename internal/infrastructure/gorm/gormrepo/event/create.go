@@ -1,4 +1,4 @@
-package revent
+package event
 
 import (
 	"context"
@@ -13,13 +13,18 @@ type createEventRepositoryImpl struct {
 }
 
 func (r *createEventRepositoryImpl) CreateEvent(ctx context.Context, event domain.Event) error {
-	return r.db.WithContext(ctx).Create(&EventModel{
+	model := EventModel{
 		ID:        uuid.New(),
 		Aggregate: event.Aggregate,
 		Version:   event.Version,
 		Data:      event.Data,
-		Timestamp: event.Timestamp,
-	}).Error
+	}
+
+	if event.Timestamp != nil {
+		model.Timestamp = *event.Timestamp
+	}
+
+	return r.db.WithContext(ctx).Create(&model).Error
 }
 
 func NewCreateEventRepositoryImpl(db *gorm.DB) *createEventRepositoryImpl {

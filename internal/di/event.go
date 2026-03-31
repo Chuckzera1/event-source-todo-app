@@ -1,18 +1,29 @@
 package di
 
 import (
-	irepositories "github.com/Chuckzera1/event-source-todo-app/internal/application/repositories"
-	revent "github.com/Chuckzera1/event-source-todo-app/internal/infrastructure/gorm/gormrepo/event"
+	eventapi "github.com/Chuckzera1/event-source-todo-app/internal/api/http/event"
+	"github.com/Chuckzera1/event-source-todo-app/internal/application/repositories"
+	"github.com/Chuckzera1/event-source-todo-app/internal/application/usecases/event"
+	eventrepo "github.com/Chuckzera1/event-source-todo-app/internal/infrastructure/gorm/gormrepo/event"
 	"gorm.io/gorm"
 )
 
 type eventRepositoryDI struct {
-	irepositories.ICreateEventRepository
+	repositories.CreateEventRepository
 }
 
-func NewEventRepositoryDI(db *gorm.DB) irepositories.IEventRepository {
-	createEventRepository := revent.NewCreateEventRepositoryImpl(db)
+func NewEventRepositoryDI(db *gorm.DB) repositories.EventRepository {
 	return &eventRepositoryDI{
-		createEventRepository,
+		eventrepo.NewCreateEventRepositoryImpl(db),
 	}
+}
+
+func NewCreateEventUseCaseDI(db *gorm.DB) event.CreateEventUseCase {
+	repo := NewEventRepositoryDI(db)
+	return event.NewCreateEventUseCaseImpl(repo)
+}
+
+func NewCreateEventHandlerDI(db *gorm.DB) eventapi.CreateEventHandler {
+	useCase := NewCreateEventUseCaseDI(db)
+	return *eventapi.NewCreateEventHandler(useCase)
 }

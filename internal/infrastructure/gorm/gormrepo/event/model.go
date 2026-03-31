@@ -1,4 +1,4 @@
-package revent
+package event
 
 import (
 	"time"
@@ -13,7 +13,7 @@ type EventModel struct {
 	Aggregate string    `gorm:"not null"`
 	Version   int       `gorm:"not null"`
 	Data      any       `gorm:"not null"`
-	Timestamp time.Time `gorm:"not null"`
+	Timestamp time.Time `gorm:"not null;default:CURRENT_TIMESTAMP;autoCreateTime"`
 }
 
 func (EventModel) TableName() string {
